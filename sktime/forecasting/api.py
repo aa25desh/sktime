@@ -45,22 +45,22 @@ class Forecaster:
 
     def _predict_internal(self, fh):
         is_oos = fh > 0
-        fh_is = fh[~is_oos]
+        is_ins = np.logical_not(is_oos)
+
         fh_oos = fh[is_oos]
-        if all(is_oos):
-            return self._predict_oos(fh_oos)
-        elif not any(is_oos):
-            return self._predict_is(fh_is)
+        fh_ins = fh[is_ins]
+
+        if np.all(is_oos):
+            return self._predict_fixed_cutoff(fh_oos)
+
+        elif np.all(is_ins):
+            return self._predict_ins(fh_ins)
         else:
-            y_is = self._predict_is(fh_is)
-            y_oos = self._predict_oos(fh_oos)
+            y_is = self._predict_ins(fh_ins)
+            y_oos = self._predict_fixed_cutoff(fh_oos)
             return np.append(y_is, y_oos)
 
-    def _predict_oos(self, fh):
-        # unnecessary, method can be removed, kept only for consistency of names
-        return self._predict_fixed_cutoff(fh)
-
-    def _predict_is(self, fh):
+    def _predict_ins(self, fh):
         assert all(fh <= 0)
         fh_abs = self.cutoff + fh
 
@@ -86,32 +86,11 @@ class Forecaster:
         return np.hstack(y_pred)
 
     def _predict_moving_cutoff(self, y, cv):
-        # can be removed later
-        check_y(y)
-        check_cv(cv)
+        # depending on cv and y, y may need some adjustment, so that
+        # the first prediction is always the first point in y
+        y = self._adjust_y(y, cv)
 
-        window_length = cv.window_length
         fh = cv.fh
-
-        cutoff = y.index[0] - 1
-        start = cutoff - window_length
-
-        if start < self.oh.index[0]:
-            # prepend observation horizon and pre-sample padding
-            y = self.oh
-            y = self._pre_sample_pad(y, start)
-
-        elif start < y.index[0]:
-            # prepend observation horizon
-            y = self.oh.iloc[start:].append(y)
-
-        else:
-            # only given data is needed
-            y = y.iloc[start:]
-
-        assert len(y) > 0
-        assert len(self.oh) > 0
-
         r = []
         with self._detached_update():
             for i, (new_window, _) in enumerate(cv.split(y)):
@@ -121,6 +100,20 @@ class Forecaster:
                 r.append(y_pred)
 
         return r
+
+    def _adjust_y(self, y, cv):
+        window_length = cv.window_length
+        cutoff = y.index[0] - 1
+        start = cutoff - window_length
+
+        # if start is before observation horizon,
+        # add pre-sample padding
+        if start < self.oh.index[0]:
+            return self._pre_sample_pad(self.oh, start)
+
+        # else prepend observation horizon
+        else:
+            return self.oh.iloc[start:].append(y)
 
     def _predict_fixed_cutoff(self, fh):
         assert all(fh > 0)
@@ -164,7 +157,14 @@ class Forecaster:
 if __name__ == "__main__":
     from sktime.datasets import load_airline
     from sktime.forecasting.model_selection import temporal_train_test_split, SlidingWindowSplitter
+    from sktime.utils.testing.forecasting import compute_expected_index_from_update_predict
     from pytest import raises
+
+
+    def assert_equal_update_predict_index(y_pred, y_test, cv):
+        a = y_pred.index.values
+        b = compute_expected_index_from_update_predict(y_test, cv)
+        np.testing.assert_array_equal(a, b)
 
     def test_predict_oos():
         f = Forecaster()
@@ -173,6 +173,7 @@ if __name__ == "__main__":
         y_pred = f.predict(fh)
         np.testing.assert_array_equal(y_pred, np.repeat(y_train.iloc[-1], len(fh)))
 
+
     def test_predict_is():
         f = Forecaster()
         f.fit(y_train)
@@ -180,12 +181,14 @@ if __name__ == "__main__":
         y_pred = f.predict(fh)
         np.testing.assert_array_equal(y_pred, y_train.iloc[fh + y_train.index[-1] - 1].values)
 
+
     def test_predict_is_negative_abs_fh():
         f = Forecaster()
         f.fit(y_train)
         fh = np.array([-len(y_train) - 1])
         with raises(ValueError):
-            y_pred = f.predict(fh)
+            f.predict(fh)
+
 
     def test_update_predict_oos_y_test():
         f = Forecaster()
@@ -193,6 +196,10 @@ if __name__ == "__main__":
         fh = np.array([2, 5])
         cv = SlidingWindowSplitter(fh=fh, window_length=3)
         y_pred = f.update_predict(y_test, cv)
+        a = y_pred.index
+        b = compute_expected_index_from_update_predict(y_test, fh)
+
+
 
     def test_update_predict_is_y_test():
         f = Forecaster()
@@ -201,12 +208,14 @@ if __name__ == "__main__":
         cv = SlidingWindowSplitter(fh=fh, window_length=3)
         y_pred = f.update_predict(y_test, cv)
 
+
     def test_update_predict_oos_y_train():
         f = Forecaster()
         f.fit(y_train)
         fh = np.array([2, 5])
         cv = SlidingWindowSplitter(fh=fh, window_length=3)
         y_pred = f.update_predict(y_train, cv)
+
 
     def test_update_predict_is_y_train():
         f = Forecaster()
@@ -215,13 +224,20 @@ if __name__ == "__main__":
         cv = SlidingWindowSplitter(fh=fh, window_length=3)
         y_pred = f.update_predict(y_train, cv)
 
+
+    def test_check_tests():
+        print("running tests")
+
+
     def run_tests():
+        test_check_tests()
         test_predict_oos()
         test_predict_is()
         test_update_predict_oos_y_test()
         test_update_predict_oos_y_train()
         test_update_predict_is_y_test()
         test_update_predict_is_y_train()
+
 
     y = load_airline()
     y_train, y_test = temporal_train_test_split(y, test_size=.3)
