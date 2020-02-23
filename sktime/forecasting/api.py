@@ -22,6 +22,7 @@ class Forecaster:
         self.fh_abs = None
 
     def fit(self, y_train):
+        y_train = check_y(y_train)
         return self.update(y_train)
 
     def predict(self, fh):
@@ -31,19 +32,19 @@ class Forecaster:
         if np.any(fh_abs < self.oh.index[0]):
             raise ValueError("cannot predict time point before oh")
 
-        return self._predict_internal(self.fh)
+        return self._predict(self.fh)
 
-    def update(self, y):
-        self.oh = y.combine_first(self.oh)
-        self.cutoff = y.index[-1]
+    def update(self, y_new):
+        y_new = check_y(y_new)
+        self.oh = y_new.combine_first(self.oh)
+        self.cutoff = y_new.index[-1]
         return self
 
-    def update_predict(self, y, cv):
+    def update_predict(self, y_test, cv):
         check_cv(cv)
-        # self._set_fh(cv.fh)
-        return self._predict_moving_cutoff(y, cv)
+        return self._predict_moving_cutoff(y_test, cv)
 
-    def _predict_internal(self, fh):
+    def _predict(self, fh):
         is_oos = fh > 0
         is_ins = np.logical_not(is_oos)
 
@@ -52,18 +53,18 @@ class Forecaster:
 
         if np.all(is_oos):
             return self._predict_fixed_cutoff(fh_oos)
-
         elif np.all(is_ins):
             return self._predict_ins(fh_ins)
         else:
-            y_is = self._predict_ins(fh_ins)
+            y_ins = self._predict_ins(fh_ins)
             y_oos = self._predict_fixed_cutoff(fh_oos)
-            return np.append(y_is, y_oos)
+            return np.append(y_ins, y_oos)
 
     def _predict_ins(self, fh):
         assert all(fh <= 0)
         fh_abs = self.cutoff + fh
 
+        # TODO fix this hack
         if hasattr(self, "_detached_oh_start") and np.any(fh_abs < self._detached_oh_start):
             # during moving cutoff prediction with in-sample data and in-sample forecasting
             # horizon, make sure to move first point to predict within the in-sample data,
@@ -79,10 +80,9 @@ class Forecaster:
             cutoffs = fh_abs - 1
 
         window_length = self.window_length
-        y = self.oh
         fh = np.array([1])
         cv = ManualWindowSplitter(cutoffs, fh, window_length)
-        y_pred = self._predict_moving_cutoff(y, cv)
+        y_pred = self._predict_moving_cutoff(self.oh, cv)
         return np.hstack(y_pred)
 
     def _predict_moving_cutoff(self, y, cv):
@@ -96,9 +96,8 @@ class Forecaster:
             for i, (new_window, _) in enumerate(cv.split(y)):
                 y_new = y.iloc[new_window]
                 self.update(y_new)
-                y_pred = self._predict_internal(fh)
+                y_pred = self._predict(fh)
                 r.append(y_pred)
-
         return r
 
     def _adjust_y(self, y, cv):
@@ -117,7 +116,7 @@ class Forecaster:
 
     def _predict_fixed_cutoff(self, fh):
         assert all(fh > 0)
-        return self._predict(fh)
+        return self._predict_last(fh)
 
     @contextmanager
     def _detached_update(self):
@@ -129,7 +128,7 @@ class Forecaster:
             self.cutoff = cutoff
             self.oh = self.oh.loc[self._detached_oh_start:]
 
-    def _predict(self, fh):
+    def _predict_last(self, fh):
         # last strategy
         last_window = self._get_last_window()
         return np.repeat(last_window.values[-1], len(fh))
@@ -196,9 +195,6 @@ if __name__ == "__main__":
         fh = np.array([2, 5])
         cv = SlidingWindowSplitter(fh=fh, window_length=3)
         y_pred = f.update_predict(y_test, cv)
-        a = y_pred.index
-        b = compute_expected_index_from_update_predict(y_test, fh)
-
 
 
     def test_update_predict_is_y_test():
