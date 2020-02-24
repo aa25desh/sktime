@@ -33,8 +33,9 @@ from sktime.performance_metrics.forecasting import smape_loss
 from sktime.utils import all_estimators
 from sktime.utils.exceptions import NotFittedError
 from sktime.utils.testing.base import _construct_instance
-from sktime.utils.testing.forecasting import compute_expected_index_from_update_predict, make_forecasting_problem, \
-    assert_correct_pred_time_index
+from sktime.utils.testing.forecasting import compute_expected_index_from_update_predict
+from sktime.utils.testing.forecasting import make_forecasting_problem
+from sktime.utils.testing.forecasting import assert_correct_pred_time_index
 from sktime.utils.validation.forecasting import check_fh
 
 # get all forecasters
@@ -81,24 +82,24 @@ def test_return_self_for_fit_set_params_update(Forecaster):
 # test oh setting
 @pytest.mark.parametrize("Forecaster", FORECASTERS)
 def test_oh_setting(Forecaster):
-    # check oh and now is None after construction
+    # check oh and cutoff is None after construction
     f = _construct_instance(Forecaster)
     assert f.oh is None
-    assert f.now is None
+    assert f.cutoff is None
 
-    # check that oh and now is updated during fit
+    # check that oh and cutoff is updated during fit
     f.fit(y_train, FH0)
     assert f.oh is not None
-    assert f.now == y_train.index[-1]
+    assert f.cutoff == y_train.index[-1]
 
     # check data pointers
     # np.testing.assert_array_equal(f.oh.index, y_train.index)
     assert f.oh.index is y_train.index
 
-    # check that oh and now is updated during update
+    # check that oh and cutoff is updated during update
     f.update(y_test, update_params=False)
     np.testing.assert_array_equal(f.oh.index, np.append(y_train.index, y_test.index))
-    assert f.now == y_test.index[-1]
+    assert f.cutoff == y_test.index[-1]
 
 
 ########################################################################################################################
