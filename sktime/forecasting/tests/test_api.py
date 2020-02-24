@@ -7,9 +7,7 @@ __all__ = []
 import numpy as np
 import pytest
 from pytest import raises
-from sktime.datasets import load_airline
 from sktime.forecasting.api import Forecaster
-from sktime.forecasting.model_selection import temporal_train_test_split
 from sktime.forecasting.model_selection import SlidingWindowSplitter
 from sktime.utils.validation.forecasting import check_fh
 
@@ -27,11 +25,10 @@ DEFAULT_MIXED_FHS = [
     [5, -2],
     [0, 1]
 ]
-DEFAULT_SPS = [3, 7, 12]
 
+from sktime.utils.testing.forecasting import make_forecasting_problem
 
-y = load_airline()
-y_train, y_test = temporal_train_test_split(y, test_size=.3)
+y_train, y_test = make_forecasting_problem()
 
 
 @pytest.mark.parametrize("fh", DEFAULT_OOS_FHS)
@@ -123,5 +120,3 @@ def test_update_predict_mixed_y_train(fh, window_length, step_length):
     f.fit(y_train)
     cv = SlidingWindowSplitter(fh=fh, window_length=window_length, step_length=step_length)
     y_pred = f.update_predict(y_train, cv)
-
-

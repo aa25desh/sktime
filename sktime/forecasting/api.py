@@ -39,7 +39,7 @@ class Forecaster:
         return self
 
     def update_predict(self, y_test, cv):
-        y_test = check_y(y_test)
+        self.update(y_test)
         cv = check_cv(cv)
         return self._predict_moving_cutoff(y_test, cv)
 
@@ -62,32 +62,24 @@ class Forecaster:
     def _predict_ins(self, fh):
         assert all(fh <= 0)
         fh_abs = self.cutoff + fh
+        cutoffs = fh_abs - 1
+        window_length = self.window_length
+        start = np.min(cutoffs) - window_length
 
-        # TODO fix this hack
-        if hasattr(self, "_detached_oh_start") and np.any(fh_abs < self._detached_oh_start):
-            # during moving cutoff prediction with in-sample data and in-sample forecasting
-            # horizon, make sure to move first point to predict within the in-sample data,
-            # rather than predicting a value before the passed in-sample data
-            shift = np.min(fh_abs) - self._detached_oh_start
-            fh_abs = fh_abs - shift
-            cutoffs = fh_abs - 1
-            # after adjusting the point to predict, it may happen that the required pre-sample
-            # data is not available in the observation horizon, so we add it here
-            if not np.all(np.isin(cutoffs, self.oh.index)):
-                self.oh = self.oh.combine_first(pd.Series(np.full(len(cutoffs), np.nan), index=cutoffs))
-        else:
-            cutoffs = fh_abs - 1
+        # if start is before observation horizon,
+        # add pre-sample padding
+        y_train = self.oh
+        if start < self.oh.index[0]:
+            y_train = self._pre_sample_pad(y_train, start)
 
         fh = np.array([1])
         cv = ManualWindowSplitter(cutoffs, fh, self.window_length)
-        y_pred = self._predict_moving_cutoff(self.oh, cv)
+        y_pred = self._predict_moving_cutoff(y_train, cv)
         return np.hstack(y_pred)
 
     def _predict_moving_cutoff(self, y, cv):
         # depending on cv and y, y may need some adjustment, so that
         # the first prediction is always the first point in y
-        y = self._adjust_y(y, cv)
-
         fh = cv.fh
         r = []
         with self._detached_update():
@@ -97,20 +89,6 @@ class Forecaster:
                 y_pred = self._predict(fh)
                 r.append(y_pred)
         return r
-
-    def _adjust_y(self, y, cv):
-        window_length = cv.window_length
-        cutoff = y.index[0] - 1
-        start = cutoff - window_length
-
-        # if start is before observation horizon,
-        # add pre-sample padding
-        if start < self.oh.index[0]:
-            return self._pre_sample_pad(self.oh, start)
-
-        # else prepend observation horizon
-        else:
-            return self.oh.iloc[start:].append(y)
 
     def _predict_fixed_cutoff(self, fh):
         assert all(fh > 0)
