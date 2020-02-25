@@ -7,7 +7,7 @@ __all__ = []
 import numpy as np
 import pytest
 from pytest import raises
-from sktime.forecasting.api import Forecaster
+from sktime.forecasting.minimal_api import Forecaster
 from sktime.forecasting.model_selection import SlidingWindowSplitter
 from sktime.utils.validation.forecasting import check_fh
 

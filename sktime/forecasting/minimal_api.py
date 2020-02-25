@@ -12,6 +12,44 @@ from sktime.forecasting.model_selection import ManualWindowSplitter
 from sktime.utils.validation.forecasting import check_fh, check_y, check_cv
 
 
+class ForecastingHorizon:
+
+    def __init__(self, values, relative=True):
+        self._values = check_fh(values)
+
+        if not isinstance(relative, bool):
+            raise ValueError(f"relative must be a boolean, but found: {type(relative)}")
+        self._relative = relative
+
+    @property
+    def values(self):
+        return self._values
+
+    @property
+    def relative(self):
+        return self._relative
+
+    @property
+    def in_sample_values(self):
+        return self.values[self.values <= 0]
+
+    @property
+    def out_of_sample_values(self):
+        return self.values[self.values > 0]
+
+    def get_absolute_values(self, cutoff=None):
+        if self.relative:
+            return self.values + cutoff
+        else:
+            return self.values
+
+    def get_relative_values(self, cutoff=None):
+        if self.relative:
+            return self.values
+        else:
+            return self.values - cutoff
+
+
 class Forecaster:
 
     def __init__(self):
